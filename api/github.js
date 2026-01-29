@@ -14,7 +14,6 @@ export default async function handler(req, res) {
   if (!repo) return res.status(200).send("No repo");
 
   const repos = (await kv.get("repos")) || [];
-
   if (!repos.includes(repo)) {
     return res.status(200).send("Repo not tracked");
   }
