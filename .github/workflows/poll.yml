@@ -1,0 +1,14 @@
+name: Poll external GitHub repos
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call polling endpoint
+        run: |
+          curl -s -X GET https://github-issue-telegram-bot.vercel.app/api/poll
