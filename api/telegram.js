@@ -1,5 +1,22 @@
 import { kv } from "@vercel/kv";
 
+// Helper: normalize repo input
+function extractRepo(input) {
+  let text = input.trim();
+
+  // Remove protocol
+  text = text.replace(/^https?:\/\//, "");
+
+  // Remove github.com/
+  text = text.replace(/^github\.com\//, "");
+
+  // Remove trailing paths like /issues
+  const parts = text.split("/");
+  if (parts.length < 2) return null;
+
+  return `${parts[0]}/${parts[1]}`;
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
 
@@ -8,43 +25,60 @@ export default async function handler(req, res) {
 
   const chatId = message.chat.id;
 
-  // --- Robust command parsing ---
-  const rawText = message.text.trim();
-  const firstLine = rawText.split("\n")[0]; // ignore multiline junk
-  const [commandWithBot, ...args] = firstLine.split(" ");
-
-  // Remove @BotUsername if present
-  const command = commandWithBot.split("@")[0];
+  const raw = message.text.trim();
+  const firstLine = raw.split("\n")[0];
+  const [cmdWithBot, ...args] = firstLine.split(" ");
+  const command = cmdWithBot.split("@")[0];
   const argument = args.join(" ").trim();
 
-  let repos = (await kv.get("repos")) || [];
+  let repos = (await kv.get("poll:repos")) || [];
   let reply = "❓ Unknown command";
 
+  // ---- ADD ----
   if (command === "/add") {
     if (!argument) {
-      reply = "⚠️ Usage: /add owner/repo";
-    } else if (!repos.includes(argument)) {
-      repos.push(argument);
-      await kv.set("repos", repos);
-      reply = `✅ Added repo:\n${argument}`;
+      reply = `📥 Send the GitHub repo to track.
+
+Examples:
+• jaegertracing/jaeger
+• https://github.com/jaegertracing/jaeger`;
     } else {
-      reply = `⚠️ Repo already tracked:\n${argument}`;
+      const repo = extractRepo(argument);
+
+      if (!repo) {
+        reply = "⚠️ Invalid repo format. Use owner/repo or a GitHub URL.";
+      } else if (!repos.includes(repo)) {
+        repos.push(repo);
+        await kv.set("poll:repos", repos);
+        reply = `✅ Added repo:\n${repo}`;
+      } else {
+        reply = `⚠️ Repo already tracked:\n${repo}`;
+      }
     }
   }
 
+  // ---- REMOVE ----
   else if (command === "/remove") {
     if (!argument) {
-      reply = "⚠️ Usage: /remove owner/repo";
+      reply = "⚠️ Usage: /remove owner/repo or GitHub URL";
     } else {
-      repos = repos.filter(r => r !== argument);
-      await kv.set("repos", repos);
-      reply = `🗑 Removed repo:\n${argument}`;
+      const repo = extractRepo(argument);
+
+      if (!repo) {
+        reply = "⚠️ Invalid repo format.";
+      } else {
+        repos = repos.filter(r => r !== repo);
+        await kv.set("poll:repos", repos);
+        await kv.del(`poll:last_seen:${repo}`);
+        reply = `🗑 Removed repo:\n${repo}`;
+      }
     }
   }
 
+  // ---- LIST ----
   else if (command === "/list") {
     reply = repos.length
-      ? `📦 Tracked repos:\n\n${repos.map(r => `• ${r}`).join("\n")}`
+      ? `📡 Tracked repos:\n\n${repos.map(r => `• ${r}`).join("\n")}`
       : "📭 No repos tracked";
   }
 
